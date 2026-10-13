@@ -2,6 +2,9 @@ name: Verify release
 
 # Проверяет выложенный релиз так, как его получит пользователь: ставит скриптом
 # установки и запускает. Сами сборки приходят из закрытого репозитория.
+#
+# Состав релиза — один архив Luna-<версия>-macos-universal.zip и checksums.txt:
+# отдельного ядра и сборок под другие системы у Luna больше нет.
 on:
   release:
     types: [published]
@@ -19,47 +22,33 @@ env:
 
 jobs:
   macos:
-    name: Установка и запуск (macOS)
-    runs-on: macos-15
+    name: Установка и запуск (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Минимальная macOS приложения и самая новая из доступных раннеров.
+        os: [macos-15, macos-26]
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
       - name: Установить скриптом
         run: LUNA_VERSION="$TAG" LUNA_INSTALL_DIR="$RUNNER_TEMP/Applications" sh install.sh
-      - name: Приложение запускается и поднимает ядро
+      - name: Подпись и обе архитектуры
         run: |
           app="$RUNNER_TEMP/Applications/Luna.app"
           codesign --verify --strict "$app"
           lipo "$app/Contents/MacOS/Luna" -verify_arch arm64 x86_64
-          LUNA_DATA_DIR="$RUNNER_TEMP/luna-data" "$app/Contents/MacOS/Luna" > "$RUNNER_TEMP/luna.log" 2>&1 &
-          pid=$!
-          sleep 5
-          if ! kill -0 "$pid" 2>/dev/null || ! pgrep -P "$pid" -f 'core/main.js' >/dev/null; then
-            cat "$RUNNER_TEMP/luna.log"
+      - name: Приложение запускается и завершается
+        # Чистый HOME, SIGTERM и SIGKILL, 5 с на выход — правила scripts/smoke.sh.
+        run: sh scripts/smoke.sh "$RUNNER_TEMP/Applications/Luna.app"
+      # Последним: расхождение минимума не должно прятать результат запуска.
+      - name: Минимум macOS в бандле совпадает с install.sh
+        run: |
+          app="$RUNNER_TEMP/Applications/Luna.app"
+          want=$(sed -n 's/^min_macos=//p' install.sh)
+          have=$(plutil -extract LSMinimumSystemVersion raw "$app/Contents/Info.plist")
+          echo "install.sh: macOS $want; LSMinimumSystemVersion бандла: $have"
+          if [ -z "$want" ] || [ "${have%%.*}" != "$want" ]; then
+            echo "✗ минимум macOS в бандле ($have) не совпал с min_macos в install.sh ($want): поправьте install.sh и README.md" >&2
             exit 1
           fi
-          kill "$pid"
-
-  linux:
-    name: Ядро (Linux)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - name: Скачать и сверить
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release download $TAG --repo "$GITHUB_REPOSITORY" --pattern 'luna-core-*-linux.tar.gz' --pattern checksums.txt
-          sha256sum -c checksums.txt --ignore-missing
-          mkdir core && tar -xzf luna-core-*-linux.tar.gz -C core --strip-components 1
-      - name: Ядро отвечает на core.hello
-        run: |
-          # Ядро завершается, как только закрыт stdin, поэтому держим его открытым до ответа.
-          reply=$( (printf '{"jsonrpc":"2.0","id":1,"method":"core.hello","params":{}}\n'; sleep 3) \
-            | LUNA_DATA_DIR="$RUNNER_TEMP/luna-data" node core/main.js )
-          echo "$reply"
-          echo "$reply" | grep -q '"version"'
