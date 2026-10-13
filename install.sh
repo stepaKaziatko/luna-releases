@@ -19,10 +19,13 @@ say() { printf '%s\n' "$*" >&2; }
 die() { say "✗ $*"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "нужен $1"; }
 
-[ "$(uname -s)" = Darwin ] ||
-  die "приложение Luna есть только под macOS; для Linux в релизе лежит ядро без интерфейса: https://github.com/$repo/releases/latest"
+# Минимум macOS у Luna — одна цифра (сейчас macOS 15): «Проверка выпуска»
+# сверяет её с LSMinimumSystemVersion выложенного бандла.
+min_macos=15
+
+[ "$(uname -s)" = Darwin ] || die "приложение Luna есть только под macOS"
 macos=$(sw_vers -productVersion)
-[ "${macos%%.*}" -ge 14 ] || die "нужна macOS 14 или новее, здесь $macos"
+[ "${macos%%.*}" -ge "$min_macos" ] || die "нужна macOS $min_macos или новее, здесь $macos"
 need curl
 need ditto
 need shasum
@@ -79,15 +82,7 @@ mv "$tmp/unpacked/Luna.app" "$dir/Luna.app"
 xattr -dr com.apple.quarantine "$dir/Luna.app" 2>/dev/null || true
 
 say "✓ Luna $tag → $dir/Luna.app"
-if command -v node >/dev/null 2>&1; then
-  node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 18) ? 0 : 1)' ||
-    say "  Luna нужен Node.js 22.18 или новее, здесь $(node --version): https://nodejs.org"
-else
-  say "  Luna нужен Node.js 22.18 или новее: https://nodejs.org"
-fi
-command -v claude >/dev/null 2>&1 || [ -x "$HOME/.local/bin/claude" ] ||
-  say "  задачи выполняет Claude Code — установите его и войдите: https://claude.com/claude-code"
 if $was_running; then
   say "  прежняя версия была запущена и закрыта; macOS может заново спросить разрешения"
 fi
-say "  запустить: open \"$dir/Luna.app\" — затем ⌥ Space в любом приложении"
+say "  запустить: open \"$dir/Luna.app\" — остров появится у верхнего края экрана, чат открывается по ⌃⌥Space"
