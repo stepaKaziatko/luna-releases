@@ -2,25 +2,28 @@
 #
 # Установка Luna на macOS:
 #
-#   curl -fsSL https://raw.githubusercontent.com/stepaKaziatko/luna-releases/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/stepaKaziatko/luna-assistant/main/install.sh | sh
 #
 # Качает последний релиз, сверяет контрольную сумму и кладёт Luna.app в «Программы».
 # Тем же скриптом Luna обновляется.
 #
-#   LUNA_VERSION=v0.2.0          конкретный релиз вместо последнего
+#   LUNA_VERSION=v1.0.0          конкретный релиз вместо последнего
 #   LUNA_INSTALL_DIR=~/Apps      куда класть; по умолчанию /Applications,
 #                                если он доступен на запись, иначе ~/Applications
 set -eu
 
-repo="stepaKaziatko/luna-releases"
+repo="stepaKaziatko/luna-assistant"
+# Релизы до v1.0.0 включительно выкладывались в отдельный репозиторий — теперь это архив.
+# Их файлы берём оттуда: в этом репозитории у старых релизов файлов нет.
+archive_repo="stepaKaziatko/luna-releases"
 version="${LUNA_VERSION:-}"
 
 say() { printf '%s\n' "$*" >&2; }
 die() { say "✗ $*"; exit 1; }
 need() { command -v "$1" >/dev/null 2>&1 || die "нужен $1"; }
 
-# Минимум macOS у Luna — одна цифра (сейчас macOS 15): «Проверка выпуска»
-# сверяет её с LSMinimumSystemVersion выложенного бандла.
+# Минимум macOS у Luna — одна цифра (сейчас macOS 15): проверка установки в Release
+# сверяет её с LSMinimumSystemVersion собранного бандла.
 min_macos=15
 
 [ "$(uname -s)" = Darwin ] || die "приложение Luna есть только под macOS"
@@ -44,9 +47,14 @@ else
   esac
 fi
 
+case "$tag" in
+  v0.* | v1.0.0) from="$archive_repo" ;;
+  *) from="$repo" ;;
+esac
+
 archive="Luna-${tag#v}-macos-universal.zip"
 # LUNA_DOWNLOAD_BASE — откуда брать файлы релиза; нужен только для проверки самого скрипта.
-base="${LUNA_DOWNLOAD_BASE:-https://github.com/$repo/releases/download/$tag}"
+base="${LUNA_DOWNLOAD_BASE:-https://github.com/$from/releases/download/$tag}"
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
